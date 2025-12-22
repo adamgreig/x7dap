@@ -1,0 +1,23 @@
+[package]
+name = "x7dap"
+version = "0.1.0"
+authors = ["Adam Greig <adam@adamgreig.com>"]
+edition = "2024"
+repository = "https://github.com/adamgreig/x7dap"
+license = "Apache-2.0 OR MIT"
+description = "Program 7-series FPGAs using CMSIS-DAP probes"
+
+[patch.crates-io]
+#jtagdap = { path = "/home/adam/Projects/jtagdap" }
+
+[dependencies]
+log = "0.4.29"
+anyhow = "1.0.100"
+thiserror = "2.0.17"
+env_logger = "0.11.8"
+num_enum = "0.7.5"
+clap = { version = "4.5.53", features = ["cargo", "unicode"] }
+clap-num = "1.2.0"
+indicatif = "0.18.3"
+spi-flash = "0.3.0"
+jtagdap = "0.1.1"
