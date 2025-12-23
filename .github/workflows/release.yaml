@@ -1,0 +1,94 @@
+name: Create Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Create Release
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup self update
+          rustup toolchain install stable --profile minimal
+
+      - name: Install additional targets
+        run: |
+          rustup target add x86_64-pc-windows-gnu
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y p7zip-full build-essential pkg-config \
+              libusb-dev libusb-1.0 gcc-mingw-w64-x86-64
+
+      - name: Download libusb DLLs for Windows
+        run: |
+          wget https://github.com/libusb/libusb/releases/download/v1.0.25/libusb-1.0.25.7z
+          mkdir libusb
+          mv libusb-1.0.25.7z libusb/
+          cd libusb
+          7z x libusb-1.0.25.7z
+
+      - name: Build for Linux x86_64
+        run: |
+          cargo clean
+          cargo build --release
+          cp target/release/x7dap x7dap_linux_x86_64
+
+      - name: Build for Windows x86_64
+        env:
+          PKG_CONFIG_ALLOW_CROSS: 1
+          RUSTFLAGS: -L ${{ github.workspace }}/libusb/MinGW64/dll/
+        run: |
+          cargo clean
+          cargo build --release --target x86_64-pc-windows-gnu
+          cp target/x86_64-pc-windows-gnu/release/x7dap.exe x7dap_windows_x86_64.exe
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: true
+          prerelease: false
+          body: |
+            In this release:
+
+            The following pre-built files are available:
+              * `x7dap_linux_x86_64`: x7dap software for Linux (64-bit)
+              * `x7dap_windows_x86_64.exe`: x7dap software for Windows (64-bit)
+
+            x7dap requires libusb:
+
+            * on Linux, it usually suffices to install libusb-1.0
+            * on Windows, download the pre-built DLLs from [libusb.info](https://libusb.info) and place `libusb-1.0.dll` from `MinGW64/dll` in the same directory as the x7dap executable.
+
+      - name: Upload x7dap for Linux x86_64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: x7dap_linux_x86_64
+          asset_name: x7dap_linux_x86_64
+          asset_content_type: application/octet-stream
+
+      - name: Upload x7dap for Windows x86_64
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: x7dap_windows_x86_64.exe
+          asset_name: x7dap_windows_x86_64.exe
+          asset_content_type: application/octet-stream
