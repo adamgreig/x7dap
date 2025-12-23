@@ -1,15 +1,15 @@
 // Copyright 2025 Adam Greig
 // Licensed under Apache-2.0 and MIT licenses.
 
-use std::{io::Write, fs::File, time::{Instant, Duration}};
+use std::{time::{Instant, Duration}};
 use clap::{Command, Arg, ArgAction, crate_description, crate_version, value_parser};
-use clap_num::{maybe_hex, si_number};
+use clap_num::si_number;
 use anyhow::bail;
 
 use jtagdap::probe::{Probe, ProbeInfo};
 use jtagdap::dap::DAP;
 use jtagdap::jtag::{JTAG, JTAGChain};
-use x7dap::{check_tap_idx, auto_tap_idx, X7IDCODE, X7};
+use x7dap::{check_tap_idx, auto_tap_idx, X7IDCODE, X7, Bitstream};
 
 fn main() -> anyhow::Result<()> {
     let matches = Command::new("x7dap")
@@ -80,17 +80,12 @@ fn main() -> anyhow::Result<()> {
         .subcommand(Command::new("dna")
             .about("Read the device DNA"))
         .subcommand(Command::new("status")
-            .about("Read the device status"))
+            .about("Read the device status register"))
         .subcommand(Command::new("program")
             .about("Program SRAM with bitstream")
             .arg(Arg::new("file")
                  .help("File to program to device")
-                 .required(true))
-            .arg(Arg::new("remove-spimode")
-                .help("Disable removing SPI_MODE commands when writing bitstreams to SRAM")
-                .long("no-remove-spimode")
-                .action(ArgAction::SetFalse)
-                .global(true)))
+                 .required(true)))
         .get_matches();
 
     let t0 = Instant::now();
@@ -150,6 +145,9 @@ fn main() -> anyhow::Result<()> {
         .map(|lens| lens.copied().collect::<Vec<usize>>());
 
     // Scan the JTAG chain to detect all available TAPs.
+    // TODO: This might fail on common Zynq parts with two TAPs but ambiguous IRLENs;
+    // if there are only two TAPs detected the IRLENs are always (6, 4) so we should
+    // set them to avoid the user having to do it.
     let chain = jtag.scan(ir_lens.as_deref())?;
 
     // At this point we can handle the 'scan' command.
@@ -179,17 +177,32 @@ fn main() -> anyhow::Result<()> {
     let tap = jtag.into_tap(chain, tap_idx)?;
 
     let mut x7 = X7::new(tap, idcode);
-    let idcode = x7.idcode();
 
     match matches.subcommand_name() {
         Some("dna") => {
             if !quiet { println!("Reading DNA...") };
-            x7.dna()?;
+            let dna = x7.dna()?;
+            println!("DNA: {}", dna.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(""));
         },
         Some("status") => {
             if !quiet { println!("Reading status...") };
-            x7.status()?;
+            let status = x7.status()?;
+            println!("{status:?}");
         },
+        Some("reload") => {
+            if !quiet { println!("Reloading configuration...") };
+            x7.jprogram()?;
+        }
+        Some("program") => {
+            let matches = matches.subcommand_matches("program").unwrap();
+            let path = matches.get_one::<String>("file").unwrap();
+            let bitstream = Bitstream::from_path(path)?;
+            if quiet {
+                x7.program(bitstream.data())?;
+            } else {
+                x7.program_progress(bitstream.data())?;
+            }
+        }
         _ => panic!("Unhandled command."),
     }
 
