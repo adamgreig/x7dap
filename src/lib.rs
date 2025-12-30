@@ -215,6 +215,15 @@ impl X7IDCODE {
     pub fn config_bits_per_frame(&self) -> (usize, usize, usize) {
         (0, 0, 0)
     }
+
+    pub fn is_zynq7000(&self) -> bool {
+        match *self {
+            X7IDCODE::X7Z007S | X7IDCODE::X7Z012S | X7IDCODE::X7Z014S | X7IDCODE::X7Z010 |
+            X7IDCODE::X7Z015  | X7IDCODE::X7Z020  | X7IDCODE::X7Z030  | X7IDCODE::X7Z035 |
+            X7IDCODE::X7Z045  | X7IDCODE::X7Z100 => true,
+            _ => false,
+        }
+    }
 }
 
 pub fn check_tap_idx(chain: &JTAGChain, index: usize) -> Option<X7IDCODE> {
@@ -283,6 +292,161 @@ impl Command {
     pub fn bits(&self) -> Vec<bool> {
         jtagdap::bitvec::bytes_to_bits(&[*self as u8], 6).unwrap()
     }
+}
+
+#[derive(Copy, Clone, Debug)]
+#[allow(unused, non_camel_case_types, clippy::upper_case_acronyms)]
+#[repr(u16)]
+enum XadcReg {
+    Temperature = 0x00,
+    Vccint = 0x01,
+    Vccaux = 0x02,
+    VpVn = 0x03,
+    Vrefp = 0x04,
+    Vrefn = 0x05,
+    Vccbram = 0x06,
+    SupplyAOffset = 0x08,
+    AdcAOffset = 0x09,
+    AdcAGain = 0x0a,
+    Vccpint = 0x0d,
+    Vccpaux = 0x0e,
+    Vccoddr = 0x0f,
+    Vaux0 = 0x10,
+    Vaux1 = 0x11,
+    Vaux2 = 0x12,
+    Vaux3 = 0x13,
+    Vaux4 = 0x14,
+    Vaux5 = 0x15,
+    Vaux6 = 0x16,
+    Vaux7 = 0x17,
+    Vaux8 = 0x18,
+    Vaux9 = 0x19,
+    Vaux10 = 0x1a,
+    Vaux11 = 0x1b,
+    Vaux12 = 0x1c,
+    Vaux13 = 0x1d,
+    Vaux14 = 0x1e,
+    Vaux15 = 0x1f,
+    MaxTemp = 0x20,
+    MaxVccint = 0x21,
+    MaxVccaux = 0x22,
+    MaxVccbram = 0x23,
+    MinTemp = 0x24,
+    MinVccint = 0x25,
+    MinVccaux = 0x26,
+    MinVccbram = 0x27,
+    MaxVccpint = 0x28,
+    MaxVccpaux = 0x29,
+    MaxVccoddr = 0x2a,
+    MinVccpint = 0x2c,
+    MinVccpaux = 0x2d,
+    MinVccoddr = 0x2e,
+    SupplyBOffset = 0x30,
+    AdcBOffset = 0x31,
+    AdcBGain = 0x32,
+    Flag = 0x3f,
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct MinMaxNow {
+    min: f32,
+    max: f32,
+    current: f32,
+    units: &'static str,
+}
+
+impl MinMaxNow {
+    pub fn from_temperature(min: u16, max: u16, current: u16) -> Self {
+        Self {
+            min: ((min >> 4) as f32 * 503.975)/4096.0 - 273.15,
+            max: ((max >> 4) as f32 * 503.975)/4096.0 - 273.15,
+            current: ((current >> 4) as f32 * 503.975)/4096.0 - 273.15,
+            units: "°C",
+        }
+    }
+
+    pub fn from_voltage(min: u16, max: u16, current: u16) -> Self {
+        Self {
+            min: ((min >> 4) as f32 * 3.0)/4096.0,
+            max: ((max >> 4) as f32 * 3.0)/4096.0,
+            current: ((current >> 4) as f32 * 3.0)/4096.0,
+            units: "V",
+        }
+    }
+}
+
+impl fmt::Display for MinMaxNow {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(
+            f,
+            "Min {:.2}{}, Max {:.2}{}, Now {:.2}{}",
+            self.min,
+            self.units,
+            self.max,
+            self.units,
+            self.current,
+            self.units,
+        )
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct XadcReading {
+    temperature: MinMaxNow,
+    vccint: MinMaxNow,
+    vccaux: MinMaxNow,
+    vccbram: MinMaxNow,
+    vccpint: MinMaxNow,
+    vccpaux: MinMaxNow,
+    vccoddr: MinMaxNow,
+    vrefp: f32,
+    vrefn: f32,
+    flag: u16,
+    is_zynq7000: bool,
+}
+
+impl fmt::Display for XadcReading {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if self.is_zynq7000 {
+            write!(
+                f,
+                " Temperature: {}\n Vccint:  {}\n Vccaux:  {}\n Vccbram: {}\n Vccpint: {}\n \
+                  Vccpaux: {}\n Vccoddr: {}\n Vrefp: {:.3}V\n Vrefn: {:.3}V\n Flag: 0x{:04X}",
+                self.temperature,
+                self.vccint,
+                self.vccaux,
+                self.vccbram,
+                self.vccpint,
+                self.vccpaux,
+                self.vccoddr,
+                self.vrefp,
+                self.vrefn,
+                self.flag,
+            )
+        } else {
+            write!(
+                f,
+                " Temperature: {}\n Vccint:  {}\n Vccaux:  {}\n Vccbram: {}\n \
+                  Vrefp: {:.3}V\n Vrefn: {:.3}V\n Flag: 0x{:04X}",
+                self.temperature,
+                self.vccint,
+                self.vccaux,
+                self.vccbram,
+                self.vrefp,
+                self.vrefn,
+                self.flag,
+            )
+        }
+    }
+}
+
+fn vrefp_to_float(vrefp: u16) -> f32 {
+    ((vrefp >> 4) as f32) * 3.0/4096.0
+}
+
+fn vrefn_to_float(vrefn: u16) -> f32 {
+    let vrefn = ((vrefn as i16) >> 4) as f32;
+    vrefn * 3.0/4096.0
 }
 
 /// Configuration status register.
@@ -387,6 +551,72 @@ impl X7 {
         log::debug!("{:?}", status);
         self.tap.test_logic_reset()?;
         Ok(status)
+    }
+
+    /// Read XADC registers
+    pub fn xadc(&mut self) -> Result<XadcReading> {
+        // Select XADC mode
+        self.tap.test_logic_reset()?;
+        self.tap.run_test_idle(5)?;
+        self.command(Command::XADC_DRP)?;
+
+        let reading = XadcReading {
+            temperature: MinMaxNow::from_temperature(
+                self.read_xadc_reg(XadcReg::MinTemp)?,
+                self.read_xadc_reg(XadcReg::MaxTemp)?,
+                self.read_xadc_reg(XadcReg::Temperature)?,
+            ),
+            vccint: MinMaxNow::from_voltage(
+                self.read_xadc_reg(XadcReg::MinVccint)?,
+                self.read_xadc_reg(XadcReg::MaxVccint)?,
+                self.read_xadc_reg(XadcReg::Vccint)?,
+            ),
+            vccaux: MinMaxNow::from_voltage(
+                self.read_xadc_reg(XadcReg::MinVccaux)?,
+                self.read_xadc_reg(XadcReg::MaxVccaux)?,
+                self.read_xadc_reg(XadcReg::Vccaux)?,
+            ),
+            vccbram: MinMaxNow::from_voltage(
+                self.read_xadc_reg(XadcReg::MinVccbram)?,
+                self.read_xadc_reg(XadcReg::MaxVccbram)?,
+                self.read_xadc_reg(XadcReg::Vccbram)?,
+            ),
+            vccpint: MinMaxNow::from_voltage(
+                self.read_xadc_reg(XadcReg::MinVccpint)?,
+                self.read_xadc_reg(XadcReg::MaxVccpint)?,
+                self.read_xadc_reg(XadcReg::Vccpint)?,
+            ),
+            vccpaux: MinMaxNow::from_voltage(
+                self.read_xadc_reg(XadcReg::MinVccpaux)?,
+                self.read_xadc_reg(XadcReg::MaxVccpaux)?,
+                self.read_xadc_reg(XadcReg::Vccpaux)?,
+            ),
+            vccoddr: MinMaxNow::from_voltage(
+                self.read_xadc_reg(XadcReg::MinVccoddr)?,
+                self.read_xadc_reg(XadcReg::MaxVccoddr)?,
+                self.read_xadc_reg(XadcReg::Vccoddr)?,
+            ),
+            vrefp: vrefp_to_float(self.read_xadc_reg(XadcReg::Vrefp)?),
+            vrefn: vrefn_to_float(self.read_xadc_reg(XadcReg::Vrefn)?),
+            flag: self.read_xadc_reg(XadcReg::Flag)?,
+            is_zynq7000: self.idcode.is_zynq7000(),
+        };
+
+        self.tap.test_logic_reset()?;
+        Ok(reading)
+    }
+
+    /// Read single XADC register
+    fn read_xadc_reg(&mut self, reg: XadcReg) -> Result<u16> {
+        log::debug!("Reading XADC register {:?} ({:04X})", reg, reg as u16);
+        let mut bits = Vec::new();
+        bitvec::append_u32(&mut bits, 0x0400_0000 | ((reg as u32) << 16));
+        self.tap.write_dr(&bits)?;
+        self.tap.run_test_idle(15)?;
+        let result = bits_to_bytes(&self.tap.read_dr(32)?);
+        let result = u32::from_le_bytes([result[0], result[1], result[2], result[3]]);
+        log::debug!("Got result {:08X}", result);
+        Ok(result as u16)
     }
 
     /// Program a bitstream to SRAM.

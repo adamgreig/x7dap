@@ -81,6 +81,8 @@ fn main() -> anyhow::Result<()> {
             .about("Read the device DNA"))
         .subcommand(Command::new("status")
             .about("Read the device status register"))
+        .subcommand(Command::new("xadc")
+            .about("Read the XADC values"))
         .subcommand(Command::new("program")
             .about("Program SRAM with bitstream")
             .arg(Arg::new("file")
@@ -188,6 +190,11 @@ fn main() -> anyhow::Result<()> {
             if !quiet { println!("Reading status...") };
             let status = x7.status()?;
             println!("{status:?}");
+        },
+        Some("xadc") => {
+            if !quiet { println!("Reading XADC...") };
+            let xadc = x7.xadc()?;
+            println!("{xadc}");
         },
         Some("reload") => {
             if !quiet { println!("Reloading configuration...") };
